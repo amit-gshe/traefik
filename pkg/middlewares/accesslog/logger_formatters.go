@@ -33,7 +33,7 @@ func (f *CommonLogFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 		elapsedMillis = v.(time.Duration).Nanoseconds() / 1000000
 	}
 
-	_, err := fmt.Fprintf(b, "%s - %s [%s] \"%s %s %s\" %v %v %s %s %v %s %s %dms\n",
+	_, err := fmt.Fprintf(b, "%s - %s [%s] \"%s %s %s\" %v %v %s %s %v %s %s %s %s %dms\n",
 		toLog(entry.Data, ClientHost, defaultValue, false),
 		toLog(entry.Data, ClientUsername, defaultValue, false),
 		timestamp,
@@ -47,6 +47,8 @@ func (f *CommonLogFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 		toLog(entry.Data, RequestCount, defaultValue, true),
 		toLog(entry.Data, RouterName, `"-"`, true),
 		toLog(entry.Data, ServiceURL, `"-"`, true),
+		toLog(entry.Data, RequestBody, defaultValue, false),
+		toLog(entry.Data, ResponseBody, defaultValue, false),
 		elapsedMillis)
 
 	return b.Bytes(), err

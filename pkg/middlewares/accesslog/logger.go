@@ -1,14 +1,19 @@
 package accesslog
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -168,6 +173,10 @@ func (h *Handler) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http
 	}
 
 	reqWithDataTable := req.WithContext(context.WithValue(req.Context(), DataTableKey, logDataTable))
+	requestDump, err := dumpRequest(req)
+	if err == nil && requestDump != nil {
+		core[RequestBody], err = unescapeUnicode(requestDump)
+	}
 
 	var crr *captureRequestReader
 	if req.Body != nil {
@@ -208,7 +217,7 @@ func (h *Handler) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http
 	crw := newCaptureResponseWriter(rw)
 
 	next.ServeHTTP(crw, reqWithDataTable)
-
+	core[ResponseBody], err = unescapeUnicode(crw.Body())
 	if _, ok := core[ClientUsername]; !ok {
 		core[ClientUsername] = usernameIfPresent(reqWithDataTable.URL)
 	}
@@ -229,6 +238,84 @@ func (h *Handler) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http
 	} else {
 		h.logTheRoundTrip(logDataTable)
 	}
+}
+
+func unescapeUnicode(raw []byte) (string, error) {
+	return strconv.Unquote(strings.Replace(strconv.Quote(string(raw)), `\\u`, `\u`, -1))
+}
+
+// drainBody reads all of b to memory and then returns two equivalent
+// ReadClosers yielding the same bytes.
+//
+// It returns an error if the initial slurp of all bytes fails. It does not attempt
+// to make the returned ReadClosers have identical error-matching behavior.
+func drainBody(b io.ReadCloser) (r1, r2 io.ReadCloser, err error) {
+	if b == nil || b == http.NoBody {
+		// No copying needed. Preserve the magic sentinel meaning of NoBody.
+		return http.NoBody, http.NoBody, nil
+	}
+	var buf bytes.Buffer
+	if _, err = buf.ReadFrom(b); err != nil {
+		return nil, b, err
+	}
+	if err = b.Close(); err != nil {
+		return nil, b, err
+	}
+	return ioutil.NopCloser(&buf), ioutil.NopCloser(bytes.NewReader(buf.Bytes())), nil
+}
+
+// DumpRequest returns the given request in its HTTP/1.x wire
+// representation. It should only be used by servers to debug client
+// requests. The returned representation is an approximation only;
+// some details of the initial request are lost while parsing it into
+// an http.Request. In particular, the order and case of header field
+// names are lost. The order of values in multi-valued headers is kept
+// intact. HTTP/2 requests are dumped in HTTP/1.x form, not in their
+// original binary representations.
+//
+// If body is true, DumpRequest also returns the body. To do so, it
+// consumes req.Body and then replaces it with a new io.ReadCloser
+// that yields the same bytes. If DumpRequest returns an error,
+// the state of req is undefined.
+//
+// The documentation for http.Request.Write details which fields
+// of req are included in the dump.
+func dumpRequest(req *http.Request) ([]byte, error) {
+	var err error
+	save := req.Body
+	if req.Body == nil {
+		req.Body = nil
+	} else {
+		save, req.Body, err = drainBody(req.Body)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	var b bytes.Buffer
+
+	chunked := len(req.TransferEncoding) > 0 && req.TransferEncoding[0] == "chunked"
+
+	if req.Body != nil {
+		var dest io.Writer = &b
+		if chunked {
+			dest = httputil.NewChunkedWriter(dest)
+		}
+		_, err = io.Copy(dest, req.Body)
+		if chunked {
+			dest.(io.Closer).Close()
+			io.WriteString(&b, "\r\n")
+		}
+	}
+
+	req.Body = save
+	if err != nil {
+		return nil, err
+	}
+	if b.Len() > 1024 {
+		b.Truncate(1024)
+	}
+	return b.Bytes(), nil
 }
 
 // Close closes the Logger (i.e. the file, drain logHandlerChan, etc).

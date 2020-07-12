@@ -1,0 +1,23 @@
+providers:
+  file:
+    filename: "traefik1.yaml"
+entryPoints:
+  web:
+   address: ":8080"
+log:
+  level: info
+accessLog:
+  format: json
+  fields:
+    defaultMode: drop
+    names:
+      RequestMethod: keep
+      RequestPath: keep
+      RequestBody: keep
+      ResponseBody: keep
+    headers:
+      defaultMode: drop
+      names:
+        Token: keep
+        X-Real-Ip: keep
+        User-Agent: keep

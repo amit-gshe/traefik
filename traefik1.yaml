@@ -1,0 +1,27 @@
+http:
+  # Add the router
+  routers:
+    router0:
+      entryPoints:
+      - web
+      # middlewares:
+      # - my-basic-auth
+      service: service-foo
+      rule: Path(`/ip`)
+
+  # Add the middleware
+  # middlewares:
+  #   my-basic-auth:
+  #     basicAuth:
+  #       users:
+  #       - test:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/
+  #       - test2:$apr1$d9hr9HBB$4HxwgUir3HP4EsggP/QNo0
+        # usersFile: etc/traefik/.htpasswd
+
+  # Add the service
+  services:
+    service-foo:
+      loadBalancer:
+        servers:
+        - url: https://tool.lu
+        # passHostHeader: false

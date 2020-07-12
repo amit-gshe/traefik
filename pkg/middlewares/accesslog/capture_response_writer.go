@@ -2,6 +2,7 @@ package accesslog
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"net"
 	"net/http"
@@ -15,6 +16,7 @@ type capturer interface {
 	http.ResponseWriter
 	Size() int64
 	Status() int
+	Body() []byte
 }
 
 func newCaptureResponseWriter(rw http.ResponseWriter) capturer {
@@ -29,6 +31,7 @@ func newCaptureResponseWriter(rw http.ResponseWriter) capturer {
 // that tracks request status and size.
 type captureResponseWriter struct {
 	rw     http.ResponseWriter
+	body   bytes.Buffer
 	status int
 	size   int64
 }
@@ -52,6 +55,9 @@ func (crw *captureResponseWriter) Write(b []byte) (int, error) {
 		crw.status = http.StatusOK
 	}
 	size, err := crw.rw.Write(b)
+	if crw.size < 1024 {
+		crw.body.Write(b)
+	}
 	crw.size += int64(size)
 	return size, err
 }
@@ -80,4 +86,8 @@ func (crw *captureResponseWriter) Status() int {
 
 func (crw *captureResponseWriter) Size() int64 {
 	return crw.size
+}
+
+func (crw *captureResponseWriter) Body() []byte {
+	return crw.body.Bytes()
 }
